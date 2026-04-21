@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ThreatScope — URL Risk Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #07090e;
+  --bg1:       #0c1018;
+  --bg2:       #111620;
+  --bg3:       #161c2a;
+  --border:    rgba(255,255,255,0.06);
+  --border2:   rgba(255,255,255,0.11);
+  --text:      #e8eaf0;
+  --muted:     rgba(232,234,240,0.42);
+  --dim:       rgba(232,234,240,0.18);
+  --teal:      #00d4aa;
+  --teal-dim:  rgba(0,212,170,0.1);
+  --teal-glow: rgba(0,212,170,0.18);
+  --amber:     #f0a443;
+  --amber-dim: rgba(240,164,67,0.1);
+  --red:       #f04848;
+  --red-dim:   rgba(240,72,72,0.1);
+  --red-glow:  rgba(240,72,72,0.2);
+  --blue:      #4a9eff;
+  --blue-dim:  rgba(74,158,255,0.1);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+html { background: var(--bg); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── GRID BG ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,170,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,170,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── LAYOUT ── */
+.shell {
+  position: relative; z-index: 1;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+/* ── TOPBAR ── */
+.topbar {
+  grid-column: 1 / -1;
+  padding: 0 32px;
+  height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: rgba(7,9,14,0.9);
+  backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--sans); font-size: 17px; font-weight: 700;
+  letter-spacing: -0.02em; color: var(--text);
+  text-decoration: none;
+}
+.logo-mark {
+  width: 30px; height: 30px;
+  border: 1.5px solid var(--teal);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
+}
+.logo-mark::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--teal-dim);
+}
+.logo-mark svg { position: relative; z-index: 1; }
+.logo span { color: var(--teal); }
+
+.topbar-right {
+  display: flex; align-items: center; gap: 20px;
+  font-size: 11px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase;
+}
+.status-pill {
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid rgba(0,212,170,0.25); border-radius: 20px;
+  background: var(--teal-dim); color: var(--teal); font-size: 10px; letter-spacing: 0.1em;
+}
+.status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--teal); animation: pulse 2s ease infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg1);
+  padding: 24px 0;
+  overflow-y: auto;
+  position: sticky; top: 56px; height: calc(100vh - 56px);
+}
+.sidebar-section { padding: 0 20px; margin-bottom: 28px; }
+.sidebar-label {
+  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+
+/* Quick test URLs */
+.quick-url {
+  display: block; padding: 8px 10px; margin-bottom: 4px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg2); color: var(--muted);
+  font-size: 10px; letter-spacing: 0.02em; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+  font-family: var(--mono);
+}
+.quick-url:hover { border-color: var(--border2); background: var(--bg3); color: var(--text); }
+.quick-url .qu-label {
+  display: block; font-size: 9px; letter-spacing: 0.08em;
+  text-transform: uppercase; margin-bottom: 2px;
+}
+.qu-label.safe   { color: var(--teal); }
+.qu-label.warn   { color: var(--amber); }
+.qu-label.danger { color: var(--red); }
+
+/* History */
+.hist-item {
+  padding: 8px 10px; margin-bottom: 4px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg2); cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex; align-items: center; gap: 8px;
+}
+.hist-item:hover { border-color: var(--border2); background: var(--bg3); }
+.hist-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.hist-dot.safe   { background: var(--teal); }
+.hist-dot.warning{ background: var(--amber); }
+.hist-dot.danger { background: var(--red); }
+.hist-text { flex: 1; overflow: hidden; }
+.hist-url   { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-score { font-size: 9px; color: var(--dim); margin-top: 1px; }
+.no-history { font-size: 11px; color: var(--dim); text-align: center; padding: 12px 0; }
+
+/* ── MAIN ── */
+.main { padding: 32px; overflow-y: auto; }
+
+/* SCAN INPUT */
+.scan-card {
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+  margin-bottom: 28px;
+  position: relative; overflow: hidden;
+}
+.scan-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--teal), transparent);
+  opacity: 0.5;
+}
+.scan-eyebrow {
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--teal); margin-bottom: 10px;
+}
+.scan-title {
+  font-family: var(--sans); font-size: 26px; font-weight: 700;
+  color: var(--text); letter-spacing: -0.02em; margin-bottom: 6px;
+  line-height: 1.2;
+}
+.scan-sub { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+
+.input-wrap {
+  display: flex; gap: 10px; align-items: stretch;
+}
+.url-input {
+  flex: 1; padding: 13px 16px;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: 8px; color: var(--text);
+  font-family: var(--mono); font-size: 13px;
+  outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.url-input::placeholder { color: var(--dim); }
+.url-input:focus {
+  border-color: rgba(0,212,170,0.4);
+  box-shadow: 0 0 0 3px rgba(0,212,170,0.08);
+}
+.scan-btn {
+  padding: 13px 24px; border-radius: 8px;
+  background: var(--teal); border: none; outline: none;
+  color: #071410; font-family: var(--mono); font-size: 12px;
+  font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.2s;
+  display: flex; align-items: center; gap: 8px;
+}
+.scan-btn:hover { background: #00ebbf; box-shadow: 0 0 20px rgba(0,212,170,0.3); }
+.scan-btn:active { transform: scale(0.98); }
+.scan-btn.scanning { background: var(--bg3); color: var(--teal); border: 1px solid rgba(0,212,170,0.3); pointer-events: none; }
+.scan-btn svg { transition: transform 0.3s; }
+.scan-btn.scanning svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── IDLE STATE ── */
+.idle-state {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 60px 32px; text-align: center;
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 14px;
+}
+.idle-icon {
+  width: 64px; height: 64px; border-radius: 50%;
+  border: 1px solid var(--border2); background: var(--bg2);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 18px; font-size: 26px;
+}
+.idle-title { font-family: var(--sans); font-size: 18px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.idle-sub   { font-size: 12px; color: var(--dim); max-width: 300px; line-height: 1.7; }
+
+/* ── RESULT PANEL ── */
+.result-panel { display: none; }
+.result-panel.visible { display: block; animation: fadeUp 0.4s ease both; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+
+/* TOP ROW */
+.result-top {
+  display: grid; grid-template-columns: auto 1fr; gap: 24px;
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 14px; padding: 28px; margin-bottom: 20px;
+  position: relative; overflow: hidden;
+}
+.result-top::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+}
+.result-top.safe::before   { background: linear-gradient(90deg, transparent, var(--teal), transparent); }
+.result-top.warning::before{ background: linear-gradient(90deg, transparent, var(--amber), transparent); }
+.result-top.danger::before { background: linear-gradient(90deg, transparent, var(--red), transparent); }
+
+/* Score ring */
+.score-ring-wrap {
+  width: 130px; height: 130px; position: relative; flex-shrink: 0;
+}
+.score-ring-wrap svg { transform: rotate(-90deg); }
+.ring-bg   { fill: none; stroke: var(--bg3); stroke-width: 8; }
+.ring-arc  {
+  fill: none; stroke-width: 8; stroke-linecap: round;
+  stroke-dasharray: 339.29; stroke-dashoffset: 339.29;
+  transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s;
+}
+.ring-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.ring-score {
+  font-family: var(--sans); font-size: 36px; font-weight: 800;
+  line-height: 1; letter-spacing: -0.03em;
+}
+.ring-max { font-size: 10px; color: var(--muted); letter-spacing: 0.06em; margin-top: 2px; }
+
+/* Result info */
+.result-info { display: flex; flex-direction: column; justify-content: center; }
+.result-verdict {
+  font-family: var(--sans); font-size: 22px; font-weight: 700;
+  letter-spacing: -0.02em; margin-bottom: 6px;
+}
+.result-verdict.safe   { color: var(--teal); }
+.result-verdict.warning{ color: var(--amber); }
+.result-verdict.danger { color: var(--red); }
+.result-url {
+  font-size: 11px; color: var(--muted); margin-bottom: 16px;
+  word-break: break-all; line-height: 1.5;
+}
+.result-url .protocol { color: var(--dim); }
+.result-url .domain   { color: var(--text); font-weight: 500; }
+
+/* Verdict pill */
+.verdict-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px 6px 10px; border-radius: 20px; border: 1px solid;
+  font-size: 11px; letter-spacing: 0.04em; width: fit-content;
+}
+.verdict-pill.safe   { color:var(--teal);  border-color:rgba(0,212,170,0.3);  background:var(--teal-dim); }
+.verdict-pill.warning{ color:var(--amber); border-color:rgba(240,164,67,0.3); background:var(--amber-dim); }
+.verdict-pill.danger { color:var(--red);   border-color:rgba(240,72,72,0.3);  background:var(--red-dim); }
+.verdict-pill-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.verdict-pill.danger .verdict-pill-dot { animation: pulse 1.2s ease infinite; }
+.verdict-pill.safe    .verdict-pill-dot { background: var(--teal); }
+.verdict-pill.warning .verdict-pill-dot { background: var(--amber); }
+.verdict-pill.danger  .verdict-pill-dot { background: var(--red); }
+
+/* ── METRIC CARDS ── */
+.metrics-row {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 12px; margin-bottom: 20px;
+}
+.metric-card {
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px;
+  animation: fadeUp 0.4s ease both;
+}
+.metric-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.metric-val   { font-family: var(--sans); font-size: 22px; font-weight: 700; line-height: 1; }
+.metric-sub   { font-size: 10px; color: var(--dim); margin-top: 4px; }
+.metric-bar   { height: 2px; background: var(--bg3); border-radius: 1px; margin-top: 10px; overflow: hidden; }
+.metric-fill  { height: 100%; border-radius: 1px; transition: width 1s cubic-bezier(0.4,0,0.2,1) 0.3s; }
+
+/* ── FLAGS ── */
+.section-card {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 12px;
+  margin-bottom: 16px; overflow: hidden;
+  animation: fadeUp 0.4s ease both;
+}
+.section-header {
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.section-title {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); display: flex; align-items: center; gap: 8px;
+}
+.section-count {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: var(--bg3); color: var(--dim); border: 1px solid var(--border);
+}
+
+.flag-item {
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 14px;
+  animation: fadeUp 0.3s ease both;
+}
+.flag-item:last-child { border-bottom: none; }
+.flag-icon {
+  width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 11px;
+  margin-top: 2px;
+}
+.flag-icon.danger  { background: var(--red-dim);   color: var(--red);   border: 1px solid rgba(240,72,72,0.25); }
+.flag-icon.warning { background: var(--amber-dim);  color: var(--amber); border: 1px solid rgba(240,164,67,0.25); }
+.flag-icon.safe    { background: var(--teal-dim);   color: var(--teal);  border: 1px solid rgba(0,212,170,0.25); }
+.flag-icon.info    { background: var(--blue-dim);   color: var(--blue);  border: 1px solid rgba(74,158,255,0.25); }
+.flag-body  { flex: 1; }
+.flag-text  { font-size: 12px; color: var(--text); line-height: 1.5; }
+.flag-cat   { font-size: 10px; color: var(--dim); margin-top: 2px; letter-spacing: 0.04em; }
+
+/* URL breakdown */
+.url-breakdown { padding: 16px 20px; }
+.url-part { display: flex; gap: 16px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.url-part:last-child { border-bottom: none; }
+.url-part-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); width: 90px; flex-shrink: 0; }
+.url-part-val   { font-size: 12px; color: var(--text); word-break: break-all; }
+.url-part-val .badge {
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 10px; margin-left: 6px;
+}
+.badge.safe   { background: var(--teal-dim);  color: var(--teal);  border: 1px solid rgba(0,212,170,0.25); }
+.badge.warn   { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(240,164,67,0.25); }
+.badge.danger { background: var(--red-dim);   color: var(--red);   border: 1px solid rgba(240,72,72,0.25); }
+
+/* no flags */
+.all-clear {
+  padding: 28px 20px; text-align: center;
+  font-size: 12px; color: var(--dim); display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.all-clear-icon { font-size: 22px; }
+
+/* ── SCAN LINE ANIMATION ── */
+.scan-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(7,9,14,0.75); backdrop-filter: blur(3px);
+  align-items: center; justify-content: center; flex-direction: column;
+}
+.scan-overlay.active { display: flex; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+.scan-box {
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 16px; padding: 36px 44px; text-align: center;
+  position: relative; overflow: hidden; min-width: 300px;
+}
+.scan-box::after {
+  content: '';
+  position: absolute; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--teal), transparent);
+  animation: scanLine 1.4s ease-in-out infinite;
+  top: 0;
+}
+@keyframes scanLine {
+  0%   { top: 0; opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+.scan-label   { font-family: var(--sans); font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.scan-sublabel{ font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+.scan-url-preview {
+  margin-top: 16px; padding: 8px 14px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+  font-size: 11px; color: var(--teal); word-break: break-all; max-width: 340px;
+}
+.scan-dots { color: var(--teal); font-size: 16px; letter-spacing: 4px; margin-top: 14px; animation: dots 1.2s ease infinite; }
+@keyframes dots { 0%,100%{opacity:0.3} 50%{opacity:1} }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
+
+/* responsive */
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .metrics-row { grid-template-columns: repeat(2,1fr); }
+  .result-top { grid-template-columns: 1fr; }
+  .score-ring-wrap { margin: 0 auto; }
+}
+</style>
+</head>
+<body>
+
+<!-- SCAN OVERLAY -->
+<div class="scan-overlay" id="scanOverlay">
+  <div class="scan-box">
+    <div class="scan-label">Scanning</div>
+    <div class="scan-sublabel">Analyzing threat signals</div>
+    <div class="scan-url-preview" id="overlayUrl"></div>
+    <div class="scan-dots">• • •</div>
+  </div>
+</div>
+
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1L13 4V8C13 10.8 10.3 12.9 7 13C3.7 12.9 1 10.8 1 8V4L7 1Z" stroke="#00d4aa" stroke-width="1.2" fill="none"/>
+          <circle cx="7" cy="7.5" r="2" fill="#00d4aa"/>
+        </svg>
+      </div>
+      Threat<span>Scope</span>
+    </div>
+    <div class="topbar-right">
+      <span>URL Risk Scanner</span>
+      <div class="status-pill">
+        <div class="status-dot"></div> Online
+      </div>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Quick Test URLs</div>
+      <div class="quick-url" onclick="loadExample('https://google.com')">
+        <span class="qu-label safe">Expected: Safe</span>
+        https://google.com
+      </div>
+      <div class="quick-url" onclick="loadExample('http://login-paypal-secure.com/verify')">
+        <span class="qu-label danger">Expected: Phishing</span>
+        login-paypal-secure.com
+      </div>
+      <div class="quick-url" onclick="loadExample('http://192.168.1.1/admin/login')">
+        <span class="qu-label danger">Expected: Danger</span>
+        192.168.1.1/admin/login
+      </div>
+      <div class="quick-url" onclick="loadExample('https://amaz0n-account-verify.top/signin')">
+        <span class="qu-label danger">Expected: Phishing</span>
+        amaz0n-account-verify.top
+      </div>
+      <div class="quick-url" onclick="loadExample('https://secure.bank-login-update.verify.xyz/account')">
+        <span class="qu-label danger">Expected: Phishing</span>
+        secure.bank-login.verify.xyz
+      </div>
+      <div class="quick-url" onclick="loadExample('http://netflix-suspended-account.click/restore?user=1284')">
+        <span class="qu-label warn">Expected: Suspicious</span>
+        netflix-suspended.click
+      </div>
+      <div class="quick-url" onclick="loadExample('https://github.com/anthropics/claude')">
+        <span class="qu-label safe">Expected: Safe</span>
+        github.com/anthropics
+      </div>
+      <div class="quick-url" onclick="loadExample('https://sbi.co.in/web/personal-banking/accounts')">
+        <span class="qu-label safe">Expected: Safe</span>
+        sbi.co.in (bank, official)
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Scan History</div>
+      <div id="historyList">
+        <div class="no-history">No scans yet</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- INPUT CARD -->
+    <div class="scan-card">
+      <div class="scan-eyebrow">⊕ Threat Intelligence</div>
+      <h1 class="scan-title">URL Risk Scanner</h1>
+      <p class="scan-sub">Paste any URL below — we analyze it without opening the site.</p>
+      <div class="input-wrap">
+        <input type="text" class="url-input" id="urlInput"
+          placeholder="https://example.com/login?verify=..."
+          autocomplete="off" spellcheck="false"/>
+        <button class="scan-btn" id="scanBtn" onclick="doScan()">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Scan URL
+        </button>
+      </div>
+    </div>
+
+    <!-- IDLE -->
+    <div class="idle-state" id="idleState">
+      <div class="idle-icon">⊘</div>
+      <div class="idle-title">Awaiting URL</div>
+      <div class="idle-sub">Enter a URL above or pick a quick example from the sidebar to begin threat analysis.</div>
+    </div>
+
+    <!-- RESULT PANEL -->
+    <div class="result-panel" id="resultPanel">
+
+      <!-- Score + verdict -->
+      <div class="result-top" id="resultTop">
+        <div class="score-ring-wrap">
+          <svg width="130" height="130" viewBox="0 0 130 130">
+            <circle class="ring-bg" cx="65" cy="65" r="54"/>
+            <circle class="ring-arc" id="ringArc" cx="65" cy="65" r="54"/>
+          </svg>
+          <div class="ring-center">
+            <div class="ring-score" id="ringScore">0</div>
+            <div class="ring-max">/ 100</div>
+          </div>
+        </div>
+        <div class="result-info">
+          <div class="result-verdict" id="resultVerdict">—</div>
+          <div class="result-url" id="resultUrl"></div>
+          <div class="verdict-pill safe" id="verdictPill">
+            <div class="verdict-pill-dot"></div>
+            <span id="verdictPillText">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metric cards -->
+      <div class="metrics-row" id="metricsRow"></div>
+
+      <!-- URL Breakdown -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">
+            <span>◈</span> URL Structure Analysis
+          </div>
+        </div>
+        <div class="url-breakdown" id="urlBreakdown"></div>
+      </div>
+
+      <!-- Risk Flags -->
+      <div class="section-card" id="flagsCard">
+        <div class="section-header">
+          <div class="section-title">
+            <span>⚑</span> Risk Flags
+          </div>
+          <span class="section-count" id="flagCount">0 flags</span>
+        </div>
+        <div id="flagsList"></div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  DETECTION ENGINE
+// ══════════════════════════════════════════════
+const SUSP_KEYWORDS = ["login","signin","verify","secure","account","update",
+  "bank","paypal","amazon","google","apple","microsoft","ebay","netflix",
+  "facebook","instagram","whatsapp","dropbox","chase","wellsfargo","hdfc","sbi","icici"];
+const SUSP_TLDS = ["tk","ml","ga","cf","gq","top","xyz","click","link","online","site","pw","cc"];
+
+function analyze(url) {
+  const checks = [];
+  let score = 0;
+
+  let parsed;
+  try { parsed = new URL(url.startsWith('http') ? url : 'http://' + url); }
+  catch { return { score: 5, level:'safe', verdict:'Invalid URL', checks:[], breakdown: null }; }
+
+  const host = parsed.hostname.toLowerCase();
+  const full = url.toLowerCase();
+  const parts = host.split('.');
+  const tld   = parts[parts.length - 1];
+  const domain = parts.slice(-2).join('.');
+  const hyphens = (host.match(/-/g)||[]).length;
+
+  // ── URL CHECKS ──
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    score += 35;
+    checks.push({ sev:'danger', cat:'Network', text:'Direct IP address used — phishing sites avoid registering real domains', icon:'!' });
+  }
+  if (parsed.protocol === 'http:') {
+    score += 15;
+    checks.push({ sev:'warning', cat:'Security', text:'No HTTPS encryption — connection can be intercepted', icon:'⚠' });
+  }
+  const kwFound = SUSP_KEYWORDS.filter(w => full.includes(w));
+  if (kwFound.length >= 2) {
+    score += 22;
+    checks.push({ sev:'danger', cat:'Keywords', text:`Multiple brand/action keywords: "${kwFound.slice(0,3).join('", "')}"`, icon:'!' });
+  } else if (kwFound.length === 1) {
+    score += 9;
+    checks.push({ sev:'warning', cat:'Keywords', text:`Sensitive keyword in URL: "${kwFound[0]}"`, icon:'⚠' });
+  }
+  if (parts.length > 4) {
+    score += 22;
+    checks.push({ sev:'danger', cat:'Domain', text:`Excessive subdomains (${parts.length - 2}) — classic spoofing tactic`, icon:'!' });
+  } else if (parts.length === 4) {
+    score += 9;
+    checks.push({ sev:'warning', cat:'Domain', text:'Multiple subdomains detected', icon:'⚠' });
+  }
+  if (SUSP_TLDS.includes(tld)) {
+    score += 22;
+    checks.push({ sev:'danger', cat:'Domain', text:`.${tld} TLD is commonly abused for phishing and spam`, icon:'!' });
+  }
+  if (hyphens >= 3) {
+    score += 18;
+    checks.push({ sev:'danger', cat:'Domain', text:`${hyphens} hyphens in domain — typical of fake lookalike domains`, icon:'!' });
+  } else if (hyphens >= 1) {
+    score += 6;
+    checks.push({ sev:'info', cat:'Domain', text:'Hyphens present in domain name', icon:'i' });
+  }
+  if (url.length > 100) {
+    score += 10;
+    checks.push({ sev:'warning', cat:'Structure', text:`Long URL (${url.length} chars) — often used to hide real destination`, icon:'⚠' });
+  }
+  if (url.includes('@')) {
+    score += 28;
+    checks.push({ sev:'danger', cat:'Structure', text:'URL contains "@" — browser treats everything before it as credentials, hiding real domain', icon:'!' });
+  }
+  if (parsed.pathname.includes('//')) {
+    score += 12;
+    checks.push({ sev:'warning', cat:'Structure', text:'Double-slash in path — possible open redirect exploit', icon:'⚠' });
+  }
+  if (parsed.port && !['80','443',''].includes(parsed.port)) {
+    score += 15;
+    checks.push({ sev:'warning', cat:'Network', text:`Non-standard port ${parsed.port} — unusual for legitimate services`, icon:'⚠' });
+  }
+  const numInDomain = /\d/.test(parts.slice(0,-1).join('.'));
+  if (numInDomain && kwFound.length > 0) {
+    score += 18;
+    checks.push({ sev:'danger', cat:'Domain', text:'Numbers mixed with brand name — typosquatting detected', icon:'!' });
+  }
+  // Total params
+  const params = [...parsed.searchParams.entries()];
+  if (params.length > 5) {
+    score += 8;
+    checks.push({ sev:'info', cat:'Structure', text:`${params.length} query parameters — unusually high`, icon:'i' });
+  }
+  // Safe signals
+  if (parsed.protocol === 'https:' && !checks.some(c => c.sev === 'danger')) {
+    checks.push({ sev:'safe', cat:'Security', text:'HTTPS enabled — connection is encrypted', icon:'✓' });
+  }
+  if (SUSP_TLDS.includes(tld) === false && parts.length <= 3 && hyphens === 0 && kwFound.length === 0) {
+    checks.push({ sev:'safe', cat:'Domain', text:'Clean domain structure with no suspicious patterns', icon:'✓' });
+  }
+
+  score = Math.min(score, 100);
+  let level, verdict, advice;
+  if (score >= 65) {
+    level = 'danger'; verdict = 'Likely Phishing';
+    advice = 'Do not visit this URL.';
+  } else if (score >= 30) {
+    level = 'warning'; verdict = 'Suspicious';
+    advice = 'Proceed with caution.';
+  } else {
+    level = 'safe'; verdict = 'Looks Safe';
+    advice = 'No major threats detected.';
+  }
+
+  const breakdown = {
+    protocol: parsed.protocol.replace(':',''),
+    host: parsed.hostname,
+    tld,
+    path: parsed.pathname || '/',
+    params: params.length,
+    port: parsed.port || (parsed.protocol === 'https:' ? '443' : '80'),
+    length: url.length,
+    hyphens
+  };
+
+  return { score, level, verdict, advice, checks, breakdown };
+}
+
+// ══════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════
+const C = 2 * Math.PI * 54; // ring circumference r=54
+
+const LC = l => ({ safe:'#00d4aa', warning:'#f0a443', danger:'#f04848' }[l]);
+
+let scanHistory = [];
+
+function doScan() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) { document.getElementById('urlInput').focus(); return; }
+  runScan(url);
+}
+
+function loadExample(url) {
+  document.getElementById('urlInput').value = url;
+  runScan(url);
+}
+
+function runScan(url) {
+  // Show overlay
+  document.getElementById('overlayUrl').textContent = url;
+  document.getElementById('scanOverlay').classList.add('active');
+
+  // Fake scan delay for effect
+  setTimeout(() => {
+    document.getElementById('scanOverlay').classList.remove('active');
+    const result = analyze(url);
+    render(url, result);
+    addHistory(url, result);
+  }, 900 + Math.random() * 400);
+}
+
+function render(url, r) {
+  document.getElementById('idleState').style.display = 'none';
+  const panel = document.getElementById('resultPanel');
+  panel.className = 'result-panel visible';
+
+  // Ring
+  const arc = document.getElementById('ringArc');
+  arc.style.stroke = LC(r.level);
+  setTimeout(() => {
+    arc.style.strokeDashoffset = C - (r.score / 100) * C;
+  }, 100);
+
+  // Score counter
+  animateCount('ringScore', r.score, 800);
+
+  // Top card
+  const top = document.getElementById('resultTop');
+  top.className = 'result-top ' + r.level;
+
+  // Verdict
+  const vd = document.getElementById('resultVerdict');
+  vd.textContent = r.verdict;
+  vd.className = 'result-verdict ' + r.level;
+
+  // URL display
+  try {
+    const p = new URL(url.startsWith('http') ? url : 'http://' + url);
+    document.getElementById('resultUrl').innerHTML =
+      `<span class="protocol">${p.protocol}//</span><span class="domain">${p.hostname}</span>` +
+      `<span style="color:var(--muted)">${p.pathname.slice(0,40)}${p.pathname.length>40?'…':''}</span>`;
+  } catch { document.getElementById('resultUrl').textContent = url; }
+
+  // Pill
+  const pill = document.getElementById('verdictPill');
+  pill.className = 'verdict-pill ' + r.level;
+  document.getElementById('verdictPillText').textContent = r.advice;
+
+  // Metric cards
+  const lc = r.level;
+  document.getElementById('metricsRow').innerHTML = [
+    { label: 'Risk Score',    val: r.score,         sub: r.verdict,        bar: r.score, delay: 0   },
+    { label: 'Risk Flags',    val: r.checks.filter(c=>c.sev==='danger'||c.sev==='warning').length, sub: 'threats detected', bar: r.checks.filter(c=>c.sev==='danger').length * 20, delay: 60  },
+    { label: 'URL Length',    val: url.length + 'c', sub: url.length>80?'Suspiciously long':'Normal', bar: Math.min(url.length/150*100,100), delay: 120 },
+    { label: 'Subdomains',    val: r.breakdown ? (r.breakdown.host.split('.').length - 2) : 0, sub: 'detected', bar: r.breakdown ? Math.min((r.breakdown.host.split('.').length-2)*25,100):0, delay:180 }
+  ].map((m, i) => `
+    <div class="metric-card" style="animation-delay:${m.delay}ms">
+      <div class="metric-label">${m.label}</div>
+      <div class="metric-val" style="color:${i===0?LC(lc):'var(--text)'}">${m.val}</div>
+      <div class="metric-sub">${m.sub}</div>
+      <div class="metric-bar"><div class="metric-fill" id="mbar${i}" style="width:0%;background:${LC(lc)}"></div></div>
+    </div>`).join('');
+
+  setTimeout(() => {
+    [0,1,2,3].forEach(i => {
+      const el = document.getElementById('mbar'+i);
+      const pct = [r.score, r.checks.filter(c=>c.sev==='danger'||c.sev==='warning').length*20, Math.min(url.length/150*100,100), r.breakdown?(r.breakdown.host.split('.').length-2)*25:0][i];
+      if (el) { el.style.width = Math.min(pct,100) + '%'; }
+    });
+  }, 200);
+
+  // URL Breakdown
+  if (r.breakdown) {
+    const b = r.breakdown;
+    const tldr = SUSP_TLDS.includes(b.tld) ? `<span class="badge danger">Suspicious</span>` :
+                 ['com','org','net','in','co','io','gov','edu'].includes(b.tld) ? `<span class="badge safe">Common</span>` : '';
+    const httpBadge = b.protocol === 'https' ? `<span class="badge safe">Encrypted</span>` : `<span class="badge danger">Unencrypted</span>`;
+    document.getElementById('urlBreakdown').innerHTML = `
+      <div class="url-part"><div class="url-part-label">Protocol</div><div class="url-part-val">${b.protocol}${httpBadge}</div></div>
+      <div class="url-part"><div class="url-part-label">Hostname</div><div class="url-part-val">${b.host}</div></div>
+      <div class="url-part"><div class="url-part-label">TLD</div><div class="url-part-val">.${b.tld}${tldr}</div></div>
+      <div class="url-part"><div class="url-part-label">Path</div><div class="url-part-val">${b.path}</div></div>
+      <div class="url-part"><div class="url-part-label">Port</div><div class="url-part-val">${b.port}</div></div>
+      <div class="url-part"><div class="url-part-label">Params</div><div class="url-part-val">${b.params} query parameter${b.params!==1?'s':''}</div></div>
+      <div class="url-part"><div class="url-part-label">Hyphens</div><div class="url-part-val">${b.hyphens} in domain</div></div>
+    `;
+  }
+
+  // Flags
+  document.getElementById('flagCount').textContent = r.checks.length + ' signal' + (r.checks.length!==1?'s':'');
+  const flagsHtml = r.checks.length === 0
+    ? `<div class="all-clear"><div class="all-clear-icon">✓</div>No risk signals detected</div>`
+    : r.checks.map((f, i) => `
+      <div class="flag-item" style="animation-delay:${i*40}ms">
+        <div class="flag-icon ${f.sev}">${f.icon}</div>
+        <div class="flag-body">
+          <div class="flag-text">${f.text}</div>
+          <div class="flag-cat">${f.cat}</div>
+        </div>
+      </div>`).join('');
+  document.getElementById('flagsList').innerHTML = flagsHtml;
+
+  // Scroll to result
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function animateCount(id, target, duration) {
+  const el = document.getElementById(id);
+  const start = Date.now();
+  const tick = () => {
+    const p = Math.min((Date.now() - start) / duration, 1);
+    el.textContent = Math.round(p * p * target); // ease
+    if (p < 1) requestAnimationFrame(tick);
+    else el.textContent = target;
+  };
+  requestAnimationFrame(tick);
+}
+
+function addHistory(url, result) {
+  let hostname = url;
+  try { hostname = new URL(url.startsWith('http') ? url : 'http://' + url).hostname; } catch {}
+  scanHistory.unshift({ url: hostname, score: result.score, level: result.level, full: url });
+  if (scanHistory.length > 8) scanHistory.pop();
+
+  const list = document.getElementById('historyList');
+  list.innerHTML = scanHistory.map(h => `
+    <div class="hist-item" onclick="loadExample('${h.full.replace(/'/g,"\\'")}')">
+      <div class="hist-dot ${h.level}"></div>
+      <div class="hist-text">
+        <div class="hist-url">${h.url}</div>
+        <div class="hist-score">Score: ${h.score}/100 · ${h.level}</div>
+      </div>
+    </div>`).join('');
+}
+
+// Enter key
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doScan();
+});
+</script>
+</body>
+</html>
